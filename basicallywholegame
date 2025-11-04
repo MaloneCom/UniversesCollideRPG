@@ -1,0 +1,358 @@
+import random
+import time
+import textwrap
+
+# --- Configuration: Universes, Races, Stats, Currencies, Abilities, Items ---
+
+UNIVERSES = {
+    "DBZ": ["Saiyan", "Human (DBZ)", "Namekian"],
+    "JJK": ["Cursed Sorcerer", "Cursed Spirit", "Human (JJK)"],
+    "MASHLE": ["Magic User", "Normal (Mashle)"],
+    "OPM": ["Hero", "Monster", "Normal (OPM)"]
+}
+
+CURRENCIES = {
+    "DBZ": "Zeni",
+    "JJK": "Yen",
+    "MASHLE": "Euros",
+    "OPM": "Credits"
+}
+
+RACE_STATS = {
+    "Saiyan": {"base_health": 100, "hp_per_level": 50, "xp_rate": 1.2, "base_attack": 20, "attack_per_level": 5, "base_crit": 0.15},
+    "Cursed Sorcerer": {"base_health": 80, "hp_per_level": 40, "xp_rate": 1.0, "base_attack": 18, "attack_per_level": 4, "base_crit": 0.10},
+    "Magic User": {"base_health": 90, "hp_per_level": 45, "xp_rate": 1.1, "base_attack": 22, "attack_per_level": 6, "base_crit": 0.12},
+    "Hero": {"base_health": 70, "hp_per_level": 35, "xp_rate": 0.9, "base_attack": 15, "attack_per_level": 3, "base_crit": 0.05},
+    "Namekian": {"base_health": 120, "hp_per_level": 60, "xp_rate": 1.1, "base_attack": 15, "attack_per_level": 4, "base_crit": 0.08},
+    "Cursed Spirit": {"base_health": 110, "hp_per_level": 55, "xp_rate": 1.1, "base_attack": 25, "attack_per_level": 7, "base_crit": 0.15},
+    "Normal (Mashle)": {"base_health": 50, "hp_per_level": 25, "xp_rate": 0.8, "base_attack": 30, "attack_per_level": 8, "base_crit": 0.20}, # Saitama energy
+    "Monster": {"base_health": 95, "hp_per_level": 48, "xp_rate": 1.0, "base_attack": 21, "attack_per_level": 5, "base_crit": 0.10},
+    "Human (JJK)": {"base_health": 70, "hp_per_level": 35, "xp_rate": 0.9, "base_attack": 14, "attack_per_level": 3, "base_crit": 0.05},
+    "Human (DBZ)": {"base_health": 60, "hp_per_level": 30, "xp_rate": 1.0, "base_attack": 10, "attack_per_level": 2, "base_crit": 0.05}
+}
+
+# Abilities unlocked at specific levels per race
+RACE_ABILITIES = {
+    "Saiyan": {5: "Kamehameha Wave", 15: "Spirit Bomb"},
+    "Cursed Sorcerer": {5: "Cursed Technique: Blue", 15: "Domain Expansion"},
+    "Magic User": {5: "Iron Magic: Iron Fist", 15: "Gravity Magic: Gravitas"},
+    "Hero": {5: "Consecutive Normal Punches", 15: "Serious Punch"},
+    "Namekian": {5: "Special Beam Cannon", 15: "Namekian Healing"},
+    "Cursed Spirit": {5: "Domain Amplification", 15: "Self-Embodiment of Perfection"},
+    "Normal (Mashle)": {5: "Bench Press Barrage", 15: "God Hand Rush"},
+    "Monster": {5: "Corrosive Breath", 15: "Ultimate Evolution"},
+    "Human (JJK)": {5: "Simple Domain", 15: "Black Flash"},
+    "Human (DBZ)": {5: "Kienzan (Destructo Disk)", 15: "Solar Flare"}
+}
+
+SHOP_ITEMS = {
+    "Small Potion": {"cost": 50, "heal_amount": 50, "description": "A small vial to restore some health."},
+    "Large Potion": {"cost": 150, "heal_amount": 200, "description": "A large bottle for major recovery."}
+}
+
+
+# --- Character Class Definition (Player) ---
+
+class Character:
+    def __init__(self, username):
+        self.username = username
+        # Structure: {"DBZ": {"race": "Saiyan", "level": 1, "experience": 0, "currency": 0, "inventory": {}, "abilities": []}, ...}
+        self.universes_data = {} 
+        self.current_universe = None
+        self.current_race = None
+        self.max_health = 0
+        self.current_health = 0
+        self.attack_power = 0
+        self.crit_chance = 0.0
+
+    def get_current_data(self):
+        """Helper to get data for the active universe."""
+        return self.universes_data[self.current_universe]
+
+    def select_race_and_universe(self, universe_name, race_name):
+        if universe_name not in UNIVERSES or race_name not in UNIVERSES[universe_name]:
+            print(f"Error: Invalid universe or race selection.")
+            return False
+        
+        self.current_universe = universe_name
+        self.current_race = race_name
+        
+        if universe_name not in self.universes_data:
+            self.universes_data[universe_name] = {
+                "race": race_name,
+                "level": 1,
+                "experience": 0,
+                "currency": 0,
+                "inventory": {},
+                "abilities": []
+            }
+            print(f"\n>> {self.username} started a new path as a {race_name} in {universe_name} <<")
+        
+        self.calculate_stats()
+        return True
+
+    def calculate_stats(self):
+        current_data = self.get_current_data()
+        race_stats = RACE_STATS.get(current_data["race"]) 
+        
+        if not race_stats:
+            print(f"CRITICAL ERROR: Missing stats for race {current_data['race']}")
+            return
+
+        level = current_data["level"]
+        self.max_health = race_stats["base_health"] + (level - 1) * race_stats["hp_per_level"]
+        self.attack_power = race_stats["base_attack"] + (level - 1) * race_stats["attack_per_level"]
+        self.crit_chance = race_stats["base_crit"]
+        
+        # When stats are recalculated, manage current health state
+        if self.current_health == 0 or self.current_health > self.max_health:
+             self.current_health = self.max_health
+             
+    def check_for_unlocks(self, new_level):
+        """Checks if a new level unlocks a specific ability."""
+        race_abilities = RACE_ABILITIES.get(self.current_race, {})
+        if new_level in race_abilities:
+            ability_name = race_abilities[new_level]
+            current_abilities = self.get_current_data()["abilities"]
+            if ability_name not in current_abilities:
+                current_abilities.append(ability_name)
+                print(f"*** NEW ABILITY UNLOCKED! *** {ability_name} is now available!")
+
+    def earn_experience_and_currency(self, xp_earned, currency_earned):
+        current_data = self.get_current_data()
+        race_stats = RACE_STATS[current_data["race"]]
+        
+        # Add currency
+        current_data["currency"] += currency_earned
+        currency_name = CURRENCIES[self.current_universe]
+        
+        # Add XP and check for level ups
+        effective_xp = xp_earned * race_stats["xp_rate"]
+        current_data["experience"] += effective_xp
+        
+        xp_needed = self.xp_needed_for_next_level(current_data["level"])
+        while current_data["experience"] >= xp_needed:
+            current_data["experience"] -= xp_needed
+            current_data["level"] += 1
+            print(f"\n*** {self.username} Leveled Up to Level {current_data['level']}! ***")
+            self.calculate_stats()
+            self.check_for_unlocks(current_data["level"])
+            xp_needed = self.xp_needed_for_next_level(current_data["level"])
+        
+        print(f"\nEarned {xp_earned} XP and {currency_earned} {currency_name}.")
+        print(f"Level {current_data['level']}, XP: {current_data['experience']:.1f}/{xp_needed:.1f}")
+
+    def xp_needed_for_next_level(self, current_level):
+        return 100 * (current_level ** 1.5)
+
+    def display_status(self):
+        print("\n" + "="*40)
+        print(f"{'Character Status':^40}")
+        print("="*40)
+        print(f"User: {self.username}")
+        print(f"Current Path: {self.current_race} in {self.current_universe}")
+        current_data = self.get_current_data()
+        currency_name = CURRENCIES[self.current_universe]
+        
+        print(f"Level: {current_data['level']}")
+        print(f"Health: {self.current_health}/{self.max_health}")
+        print(f"Attack Power: {self.attack_power} | Crit Chance: {self.crit_chance:.0%}")
+        print(f"Currency ({currency_name}): {current_data['currency']}")
+        print(f"Abilities Unlocked: {', '.join(current_data['abilities']) if current_data['abilities'] else 'None'}")
+        print("="*40)
+
+
+# --- Enemy Management ---
+
+def generate_enemy(player_level, player_universe):
+    base_hp = 30 + (player_level * 10)
+    base_atk = 5 + (player_level * 2)
+    
+    enemy_data = {
+        "DBZ": {"names": ["Weak Thug", "Frieza Force Soldier", "Saibaman"], "xp_mult": 1.0},
+        "JJK": {"names": ["Low-Tier Cursed Spirit", "Cursed Human", "Finger Bearer (minor)"], "xp_mult": 1.0},
+        "MASHLE": {"names": ["Delinquent Magic User", "Shu-creampuff Monster", "Hypnotoad"], "xp_mult": 0.9},
+        "OPM": {"names": ["Crab Monster", "Vaccine Man (weak form)", "Paradise Group Thug"], "xp_mult": 1.1}
+    }
+    
+    universe_info = enemy_data.get(player_universe, enemy_data["JJK"])
+
+    return {
+        "name": random.choice(universe_info["names"]),
+        "health": random.randint(int(base_hp * 0.8), int(base_hp * 1.2)),
+        "attack": random.randint(int(base_atk * 0.8), int(base_atk * 1.2)),
+        "xp_value": random.randint(int(40 * player_level * universe_info["xp_mult"]), int(60 * player_level * universe_info["xp_mult"])),
+        "currency_drop": random.randint(5 * player_level, 15 * player_level)
+    }
+
+# --- Game Loop Functions (CLI Playable) ---
+
+def use_item_menu(player):
+    print("\n--- Use Item Menu ---")
+    current_inv = player.get_current_data()["inventory"]
+    if not current_inv:
+        print("Your inventory is empty in this universe.")
+        return
+
+    print("Inventory:")
+    for item, quantity in current_inv.items():
+        if quantity > 0:
+            print(f"- {item} ({quantity} left) | Heals: {SHOP_ITEMS[item]['heal_amount']} HP")
+    
+    choice = input("Enter item name to use, or 'back': ").strip()
+    if choice == 'back':
+        return
+    
+    if choice in current_inv and current_inv[choice] > 0:
+        item_data = SHOP_ITEMS[choice]
+        heal_amount = item_data['heal_amount']
+        
+        if player.current_health == player.max_health:
+            print("You are already at full health!")
+            return
+            
+        player.current_health += heal_amount
+        if player.current_health > player.max_health:
+            player.current_health = player.max_health
+        
+        current_inv[choice] -= 1
+        print(f"You used a {choice} and healed {heal_amount} HP.")
+        print(f"Current HP: {player.current_health}/{player.max_health}")
+    else:
+        print("Invalid item choice or you don't have any.")
+
+
+def visit_shop(player):
+    currency_name = CURRENCIES[player.current_universe]
+    current_currency = player.get_current_data()["currency"]
+    print("\n--- Universal Item Shop ---")
+    print(f"You have {current_currency} {currency_name}.")
+    print("Items Available:")
+    for name, data in SHOP_ITEMS.items():
+        print(f"- {name}: {data['cost']} {currency_name} | {data['description']}")
+    
+    choice = input("Enter item name to buy, or 'back': ").strip()
+    if choice == 'back':
+        return
+        
+    if choice in SHOP_ITEMS:
+        item_data = SHOP_ITEMS[choice]
+        if current_currency >= item_data['cost']:
+            player.get_current_data()["currency"] -= item_data['cost']
+            inventory = player.get_current_data()["inventory"]
+            inventory[choice] = inventory.get(choice, 0) + 1
+            print(f"Purchased 1x {choice}.")
+        else:
+            print("Not enough currency!")
+    else:
+        print("Invalid item name.")
+
+
+def battle_enemy(player):
+    enemy = generate_enemy(player.get_current_data()["level"], player.current_universe)
+    print(f"\n!!! A wild {enemy['name']} (HP: {enemy['health']}) appears in the {player.current_universe} universe! !!!")
+    
+    player_hp = player.current_health
+    enemy_hp = enemy["health"]
+
+    while player_hp > 0 and enemy_hp > 0:
+        time.sleep(0.5)
+        # Player attacks
+        is_crit = random.random() < player.crit_chance
+        player_damage = random.randint(int(player.attack_power * 0.8), int(player.attack_power * 1.2))
+        if is_crit:
+            player_damage *= 2
+            print(f">>> CRITICAL HIT! You unleash a powerful blow for {player_damage} damage!")
+        else:
+            print(f">>> You hit {enemy['name']} for {player_damage} damage.")
+            
+        enemy_hp -= player_damage
+        print(f"Enemy HP: {max(0, enemy_hp)}")
+
+        if enemy_hp <= 0:
+            print(f"\n*** You defeated the {enemy['name']}! ***")
+            player.earn_experience_and_currency(enemy['xp_value'], enemy['currency_drop'])
+            player.current_health = player_hp # Crucial: Update player object's health after battle
+            return
+
+        time.sleep(0.5)
+        # Enemy attacks
+        enemy_damage = random.randint(int(enemy['attack'] * 0.8), int(enemy['attack'] * 1.2))
+        player_hp -= enemy_damage
+        print(f"<<< {enemy['name']} hits you for {enemy_damage} damage.")
+        print(f"Your HP: {max(0, player_hp)}")
+
+    if player_hp <= 0:
+        print("\nXXX You have been defeated! XXX")
+        print("You collapse from exhaustion and are returned to the menu fully healed.")
+        player.current_health = player.max_health # Reset health on "death" (simplified for the CLI sim)
+
+def universe_selection_menu(player):
+    print("\n" + "="*40)
+    print(f"{'Universe & Race Selection':^40}")
+    print("="*40)
+    print(textwrap.fill("Progression is tracked separately in each universe. Choose wisely!", width=40))
+    print("Available Universes: " + ", ".join(UNIVERSES.keys()))
+    print("Enter 'back' to exit this menu.")
+    
+    while True:
+        choice_universe = input("Select a Universe (e.g., DBZ): ").upper()
+        
+        if choice_universe == 'BACK':
+            return
+        
+        if choice_universe in UNIVERSES:
+            races = UNIVERSES[choice_universe]
+            print(f"Available Races in {choice_universe}: " + ", ".join(races))
+            choice_race = input(f"Select a Race from the list above: ").strip()
+            
+            if choice_race in races:
+                player.select_race_and_universe(choice_universe, choice_race)
+                return
+            else:
+                print("Invalid race selected. Try again.")
+        else:
+            print("Invalid universe selected. Try again.")
+
+def main_game_loop():
+    print("Welcome to the Anime Multiverse Text Simulator!")
+    username = input("Enter your character name: ")
+    player = Character(username)
+
+    # Initial setup
+    universe_selection_menu(player)
+    if not player.current_universe:
+        print("Must select a universe to start.")
+        return
+
+    while True:
+        print("\n" + "-"*40)
+        print(f"Current Path: Lvl {player.get_current_data()['level']} {player.current_race} | HP: {player.current_health}/{player.max_health}")
+        print("-"*40)
+        print("1. Battle an Enemy")
+        print("2. Visit Shop")
+        print("3. Use Item")
+        print("4. Change Universe/Race")
+        print("5. View Status")
+        print("6. Quit Game")
+        
+        choice = input("Enter your choice (1-6): ")
+
+        if choice == '1':
+            battle_enemy(player)
+        elif choice == '2':
+            visit_shop(player)
+        elif choice == '3':
+            use_item_menu(player)
+        elif choice == '4':
+            universe_selection_menu(player)
+        elif choice == '5':
+            player.display_status()
+        elif choice == '6':
+            print(f"Goodbye, {player.username}! Your progress is lost until we add a save function :)")
+            break
+        else:
+            print("Invalid choice. Please enter 1-6.")
+
+if __name__ == "__main__":
+    main_game_loop()
